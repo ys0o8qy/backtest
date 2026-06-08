@@ -1,0 +1,5 @@
+date,symbol,bond_open,open,high,low,close,volume,amount,adjustment,source
+2026-01-02,bond,100,100,101,99,100,1000,100000,hfq,fixture
+2026-02-02,bond,101,101,102,100,101,1000,101000,hfq,fixture
+2026-03-02,bond,102,102,103,101,102,1000,102000,hfq,fixture
+2026-04-02,bond,103,103,104,102,103,1000,103000,hfq,fixture

@@ -1,0 +1,5 @@
+date,symbol,open,high,low,close,volume,amount,adjustment,source
+2026-01-02,stock,100,101,99,100,1000,100000,hfq,fixture
+2026-02-02,stock,110,111,109,110,1000,110000,hfq,fixture
+2026-03-02,stock,120,121,119,120,1000,120000,hfq,fixture
+2026-04-02,stock,115,116,114,115,1000,115000,hfq,fixture
