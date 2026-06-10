@@ -5,6 +5,7 @@ AKQuant is a local A-share quantitative research and backtesting MVP. It now has
 - V0.1 deterministic local engine for single-symbol strategy tests.
 - V0.2 AKShare + Backtrader path for multi-asset portfolio allocation backtests.
 - V0.3 portfolio comparison path for running multiple allocation configs under one data/cost policy.
+- V0.4 A-share valuation screening path for PE/PB/dividend-yield stock pools.
 
 The V0.1 core loop from `docs/akquant-prd-architecture.md` remains available:
 
@@ -46,11 +47,17 @@ AKShare ETF/index data -> ETF-first fallback selection -> Backtrader target-weig
   - `bond_only`
 - YAML/JSON custom portfolio configs.
 - Multi-portfolio comparison report with metrics, equity curves, drawdowns, selected assets, and fallback summary.
+- Latest A-share valuation snapshot normalization from AKShare.
+- PE/PB/dividend-yield filtering and weighted value ranking.
+- Reusable `StockPool` output with filter funnel, selected rows, and warnings.
+- Local factor snapshot cache for saved screening inputs.
+- Markdown/CSV valuation screening report export.
 
 ## What Is Not Implemented Yet
 
 - Streamlit/Dash UI.
 - Factor attribution and industry attribution.
+- Historical valuation stock-pool backtesting.
 - Precise intraday limit-up/limit-down queue modeling.
 - Live trading or broker connectivity.
 
@@ -154,7 +161,42 @@ targets:
       - { symbol: "000012", name: "国债指数", kind: "index" }
 ```
 
+## Screen A-Share Valuation Factors
+
+```bash
+uv run python -m akquant.cli screen \
+  --as-of latest \
+  --factor-cache-dir .akquant/factors \
+  --pe-max 15 \
+  --pb-max 1.5 \
+  --dividend-yield-min 0.03 \
+  --market-cap-min 5000000000 \
+  --turnover-amount-min 50000000 \
+  --top 50 \
+  --out /tmp/akquant-screen-report.md \
+  --csv-out /tmp/akquant-screen.csv
+```
+
+The screen path currently targets the latest AKShare snapshot. It excludes ST and suspended stocks by default, ranks candidates by low PE, low PB, and high dividend yield, then writes an auditable stock pool report.
+
+When `--factor-cache-dir` is provided with `--as-of latest`, AKQuant saves the fetched valuation snapshot into that cache. To screen from a saved snapshot without calling AKShare again:
+
+```bash
+uv run python -m akquant.cli screen \
+  --as-of 2026-06-10 \
+  --factor-cache-dir .akquant/factors \
+  --pe-max 15 \
+  --pb-max 1.5 \
+  --dividend-yield-min 0.03 \
+  --top 50 \
+  --out /tmp/akquant-screen-2026-06-10.md
+```
+
+For full historical valuation backtests, add a stricter historical factor reconstruction path before running periodic stock-pool rebalancing.
+
 ## Architecture Notes
+
+Project engineering standards are documented in [`docs/project-standards.md`](docs/project-standards.md).
 
 The stable portfolio-comparison architecture uses these boundaries:
 
@@ -172,6 +214,23 @@ The core domain objects are:
 - `SelectedAssetData`: actual ETF or index selected for each asset class.
 - `BacktraderPortfolioResult`: one auditable backtest run.
 - `ComparisonReport`: comparable metrics and tables across multiple runs.
+
+The valuation screening architecture adds:
+
+```text
+AKShare latest stock snapshot
+  -> fundamentals normalization
+  -> screening filters and ranking
+  -> StockPool
+  -> Markdown/CSV report
+```
+
+The implemented screening domain objects are:
+
+- `ScreenConfig`: filter, ranking, and Top N rules.
+- `ScreeningRule`: one field-level filter.
+- `RankingSpec`: one weighted factor rank.
+- `StockPool`: selected rows, filter funnel, configuration snapshot, and warnings.
 
 ## Index Return Data
 

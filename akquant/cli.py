@@ -15,10 +15,14 @@ from akquant.comparison_reporting import write_comparison_markdown_report
 from akquant.config_loader import load_portfolio_config
 from akquant.data import load_bars_csv
 from akquant.engine import run_backtest
+from akquant.factor_store import FactorStore
+from akquant.fundamentals import FundamentalDataProvider
 from akquant.models import BacktestConfig, RuleConfig
 from akquant.portfolio_reporting import write_portfolio_markdown_report
 from akquant.portfolio_registry import get_builtin_portfolio, list_builtin_portfolios
 from akquant.reporting import write_markdown_report
+from akquant.screening import RankingSpec, ScreenConfig, ScreeningRule, UniverseConfig, run_screen
+from akquant.screening_reporting import write_screening_csv, write_screening_markdown_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
         return _all_weather_main(argv[1:])
     if argv and argv[0] == "compare":
         return _compare_main(argv[1:])
+    if argv and argv[0] == "screen":
+        return _screen_main(argv[1:])
     return _single_strategy_main(argv)
 
 
@@ -138,6 +144,31 @@ def _compare_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _screen_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Screen A-share stocks by valuation factors.")
+    parser.add_argument("--as-of", default="latest", help="latest or cached snapshot date, YYYY-MM-DD.")
+    parser.add_argument("--pe-max", type=float, default=None)
+    parser.add_argument("--pb-max", type=float, default=None)
+    parser.add_argument("--dividend-yield-min", type=float, default=None)
+    parser.add_argument("--market-cap-min", type=float, default=None)
+    parser.add_argument("--turnover-amount-min", type=float, default=None)
+    parser.add_argument("--top", type=int, default=50)
+    parser.add_argument("--include-st", action="store_true", help="Include ST stocks.")
+    parser.add_argument("--include-suspended", action="store_true", help="Include suspended stocks.")
+    parser.add_argument("--factor-cache-dir", default=None, help="Optional local factor snapshot cache directory.")
+    parser.add_argument("--out", required=True, help="Markdown report output path.")
+    parser.add_argument("--csv-out", default=None, help="Optional selected stock pool CSV output path.")
+    args = parser.parse_args(argv)
+
+    snapshot = _load_screen_snapshot(args, parser)
+    config = _build_screen_config(args)
+    pool = run_screen(snapshot, config)
+    write_screening_markdown_report(pool, args.out)
+    if args.csv_out:
+        write_screening_csv(pool, args.csv_out)
+    return 0
+
+
 def _parse_key_value(value: str) -> tuple[str, str]:
     if "=" not in value:
         raise ValueError(f"expected key=value format, got {value!r}")
@@ -183,6 +214,59 @@ def _replace_rebalance(config, rebalance: str):
     from dataclasses import replace
 
     return replace(config, rebalance=rebalance)
+
+
+def _load_screen_snapshot(args: argparse.Namespace, parser: argparse.ArgumentParser) -> pd.DataFrame:
+    if args.as_of == "latest":
+        snapshot = FundamentalDataProvider().fetch_latest_valuation_snapshot()
+        if args.factor_cache_dir:
+            FactorStore(args.factor_cache_dir).save_snapshot(
+                as_of_date=_snapshot_date(snapshot),
+                frame=snapshot,
+                metadata={"source": "akshare_latest"},
+            )
+        return snapshot
+
+    if not args.factor_cache_dir:
+        parser.error("--as-of YYYY-MM-DD requires --factor-cache-dir with a cached factor snapshot.")
+    snapshot, _ = FactorStore(args.factor_cache_dir).load_snapshot(_parse_date(args.as_of))
+    return snapshot
+
+
+def _snapshot_date(snapshot: pd.DataFrame):
+    if snapshot.empty or "as_of_date" not in snapshot.columns:
+        return pd.Timestamp.today().date()
+    return pd.Timestamp(snapshot["as_of_date"].iloc[0]).date()
+
+
+def _build_screen_config(args: argparse.Namespace) -> ScreenConfig:
+    filters: list[ScreeningRule] = []
+    if args.pe_max is not None:
+        filters.extend([ScreeningRule("pe_ttm", ">", 0), ScreeningRule("pe_ttm", "<=", args.pe_max)])
+    if args.pb_max is not None:
+        filters.extend([ScreeningRule("pb", ">", 0), ScreeningRule("pb", "<=", args.pb_max)])
+    if args.dividend_yield_min is not None:
+        filters.append(ScreeningRule("dividend_yield", ">=", args.dividend_yield_min))
+    if args.market_cap_min is not None:
+        filters.append(ScreeningRule("market_cap", ">=", args.market_cap_min))
+    if args.turnover_amount_min is not None:
+        filters.append(ScreeningRule("turnover_amount", ">=", args.turnover_amount_min))
+
+    return ScreenConfig(
+        id="value_screen",
+        name="A股低估值高股息筛选",
+        universe=UniverseConfig(
+            exclude_st=not args.include_st,
+            exclude_suspended=not args.include_suspended,
+        ),
+        filters=filters,
+        ranking=[
+            RankingSpec("pe_ttm", ascending=True, weight=0.40),
+            RankingSpec("pb", ascending=True, weight=0.30),
+            RankingSpec("dividend_yield", ascending=False, weight=0.30),
+        ],
+        top_n=args.top,
+    )
 
 
 if __name__ == "__main__":

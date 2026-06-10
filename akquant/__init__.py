@@ -11,6 +11,8 @@ __all__ = [
     "config_loader",
     "data",
     "engine",
+    "factor_store",
+    "fundamentals",
     "metrics",
     "models",
     "portfolio_reporting",
@@ -19,5 +21,8 @@ __all__ = [
     "portfolios",
     "reporting",
     "rules",
+    "screening",
+    "screening_reporting",
+    "stock_pool",
     "strategies",
 ]

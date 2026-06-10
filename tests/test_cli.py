@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 import sys
 
@@ -6,6 +7,7 @@ import pandas as pd
 import akquant.cli as cli_module
 from akquant.akshare_provider import AkshareProvider
 from akquant.cli import main
+from akquant.factor_store import FactorStore
 
 
 def test_cli_generates_markdown_report(tmp_path):
@@ -196,3 +198,251 @@ targets:
     assert "年度收益对比" in report
     assert "custom_60_40" in report
     assert "fallback" in report.lower()
+
+
+class FakeFundamentalProviderForScreen:
+    def fetch_latest_valuation_snapshot(self):
+        from datetime import date
+
+        return pd.DataFrame(
+            [
+                {
+                    "as_of_date": date(2026, 6, 10),
+                    "data_date": date(2026, 6, 10),
+                    "symbol": "000001",
+                    "name": "低估高息",
+                    "close": 10.0,
+                    "pe_ttm": 8.0,
+                    "pe_dynamic": 8.0,
+                    "pe_static": None,
+                    "pb": 0.8,
+                    "dividend_yield": 0.05,
+                    "market_cap": 100_000_000_000,
+                    "float_market_cap": 90_000_000_000,
+                    "turnover_amount": 100_000_000,
+                    "industry": "bank",
+                    "is_st": False,
+                    "is_suspended": False,
+                    "listing_age_days": 1000,
+                    "data_quality_flags": [],
+                },
+                {
+                    "as_of_date": date(2026, 6, 10),
+                    "data_date": date(2026, 6, 10),
+                    "symbol": "000002",
+                    "name": "负PE",
+                    "close": 20.0,
+                    "pe_ttm": -1.0,
+                    "pe_dynamic": -1.0,
+                    "pe_static": None,
+                    "pb": 1.0,
+                    "dividend_yield": 0.04,
+                    "market_cap": 80_000_000_000,
+                    "float_market_cap": 70_000_000_000,
+                    "turnover_amount": 100_000_000,
+                    "industry": "real_estate",
+                    "is_st": False,
+                    "is_suspended": False,
+                    "listing_age_days": 1000,
+                    "data_quality_flags": [],
+                },
+            ]
+        )
+
+
+class FakeFundamentalProviderWithSpecialStatus:
+    def fetch_latest_valuation_snapshot(self):
+        from datetime import date
+
+        return pd.DataFrame(
+            [
+                {
+                    "as_of_date": date(2026, 6, 10),
+                    "data_date": date(2026, 6, 10),
+                    "symbol": "000003",
+                    "name": "ST高息",
+                    "close": 10.0,
+                    "pe_ttm": 6.0,
+                    "pe_dynamic": 6.0,
+                    "pe_static": None,
+                    "pb": 0.6,
+                    "dividend_yield": 0.08,
+                    "market_cap": 30_000_000_000,
+                    "float_market_cap": 20_000_000_000,
+                    "turnover_amount": 60_000_000,
+                    "industry": "test",
+                    "is_st": True,
+                    "is_suspended": False,
+                    "listing_age_days": 1000,
+                    "data_quality_flags": [],
+                },
+                {
+                    "as_of_date": date(2026, 6, 10),
+                    "data_date": date(2026, 6, 10),
+                    "symbol": "000004",
+                    "name": "普通低估",
+                    "close": 10.0,
+                    "pe_ttm": 8.0,
+                    "pe_dynamic": 8.0,
+                    "pe_static": None,
+                    "pb": 0.8,
+                    "dividend_yield": 0.05,
+                    "market_cap": 30_000_000_000,
+                    "float_market_cap": 20_000_000_000,
+                    "turnover_amount": 60_000_000,
+                    "industry": "test",
+                    "is_st": False,
+                    "is_suspended": False,
+                    "listing_age_days": 1000,
+                    "data_quality_flags": [],
+                },
+            ]
+        )
+
+
+class FailingFundamentalProvider:
+    def fetch_latest_valuation_snapshot(self):
+        raise AssertionError("provider should not be called when loading cached factor snapshot")
+
+
+def test_screen_cli_generates_value_screen_report_and_csv(tmp_path, monkeypatch):
+    output = tmp_path / "screen.md"
+    csv_output = tmp_path / "screen.csv"
+    monkeypatch.setattr(cli_module, "FundamentalDataProvider", lambda: FakeFundamentalProviderForScreen())
+
+    exit_code = main(
+        [
+            "screen",
+            "--as-of",
+            "latest",
+            "--pe-max",
+            "15",
+            "--pb-max",
+            "1.5",
+            "--dividend-yield-min",
+            "0.03",
+            "--top",
+            "10",
+            "--out",
+            str(output),
+            "--csv-out",
+            str(csv_output),
+        ]
+    )
+
+    assert exit_code == 0
+    report = output.read_text(encoding="utf-8")
+    assert "# AKQuant A股估值筛选报告" in report
+    assert "低估高息" in report
+    assert csv_output.exists()
+    assert "000001" in csv_output.read_text(encoding="utf-8")
+
+
+def test_screen_cli_latest_saves_factor_snapshot_when_cache_dir_is_given(tmp_path, monkeypatch):
+    output = tmp_path / "screen.md"
+    cache_dir = tmp_path / "factors"
+    monkeypatch.setattr(cli_module, "FundamentalDataProvider", lambda: FakeFundamentalProviderForScreen())
+
+    exit_code = main(
+        [
+            "screen",
+            "--as-of",
+            "latest",
+            "--factor-cache-dir",
+            str(cache_dir),
+            "--pe-max",
+            "15",
+            "--pb-max",
+            "1.5",
+            "--dividend-yield-min",
+            "0.03",
+            "--out",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 0
+    assert (cache_dir / "2026-06-10.csv").exists()
+    assert (cache_dir / "2026-06-10.json").exists()
+
+
+def test_screen_cli_loads_cached_factor_snapshot_for_specific_date(tmp_path, monkeypatch):
+    output = tmp_path / "cached-screen.md"
+    cache_dir = tmp_path / "factors"
+    FactorStore(cache_dir).save_snapshot(
+        as_of_date=date(2026, 6, 10),
+        frame=pd.DataFrame(
+            [
+                {
+                    "as_of_date": date(2026, 6, 10),
+                    "data_date": date(2026, 6, 10),
+                    "symbol": "000001",
+                    "name": "缓存低估",
+                    "close": 10.0,
+                    "pe_ttm": 8.0,
+                    "pe_dynamic": 8.0,
+                    "pe_static": None,
+                    "pb": 0.8,
+                    "dividend_yield": 0.05,
+                    "market_cap": 100_000_000_000,
+                    "float_market_cap": 90_000_000_000,
+                    "turnover_amount": 100_000_000,
+                    "industry": "bank",
+                    "is_st": False,
+                    "is_suspended": False,
+                    "listing_age_days": 1000,
+                    "data_quality_flags": ["cached"],
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(cli_module, "FundamentalDataProvider", lambda: FailingFundamentalProvider())
+
+    exit_code = main(
+        [
+            "screen",
+            "--as-of",
+            "2026-06-10",
+            "--factor-cache-dir",
+            str(cache_dir),
+            "--pe-max",
+            "15",
+            "--pb-max",
+            "1.5",
+            "--dividend-yield-min",
+            "0.03",
+            "--out",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "缓存低估" in output.read_text(encoding="utf-8")
+
+
+def test_screen_cli_include_st_allows_st_candidates(tmp_path, monkeypatch):
+    output = tmp_path / "screen-include-st.md"
+    monkeypatch.setattr(cli_module, "FundamentalDataProvider", lambda: FakeFundamentalProviderWithSpecialStatus())
+
+    exit_code = main(
+        [
+            "screen",
+            "--as-of",
+            "latest",
+            "--include-st",
+            "--pe-max",
+            "15",
+            "--pb-max",
+            "1.5",
+            "--dividend-yield-min",
+            "0.03",
+            "--top",
+            "1",
+            "--out",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 0
+    report = output.read_text(encoding="utf-8")
+    assert "ST高息" in report
