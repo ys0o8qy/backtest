@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 
 import pandas as pd
@@ -20,6 +20,41 @@ class AssetTarget:
     asset_class: str
     weight: float
     candidates: list[AssetCandidate]
+
+
+@dataclass(frozen=True)
+class CostModel:
+    commission_rate: float = 0.0003
+    slippage_perc: float = 0.0005
+
+
+@dataclass(frozen=True)
+class DataPolicy:
+    min_coverage_ratio: float = 0.95
+    etf_first: bool = True
+
+
+@dataclass(frozen=True)
+class PortfolioConfig:
+    id: str
+    name: str
+    targets: list[AssetTarget]
+    rebalance: str = "quarterly"
+    initial_cash: float = 100_000.0
+    cost_model: CostModel = field(default_factory=CostModel)
+    data_policy: DataPolicy = field(default_factory=DataPolicy)
+
+    def __post_init__(self) -> None:
+        if self.rebalance not in {"monthly", "quarterly", "yearly", "once"}:
+            raise ValueError("rebalance must be one of: monthly, quarterly, yearly, once")
+        total_weight = sum(target.weight for target in self.targets)
+        if abs(total_weight - 1.0) > 1e-6:
+            raise ValueError(f"portfolio target weights must sum to 1.0, got {total_weight:.6f}")
+        if self.initial_cash <= 0:
+            raise ValueError("initial_cash must be positive")
+
+    def snapshot(self) -> dict[str, object]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -72,6 +107,53 @@ def all_weather_targets() -> list[AssetTarget]:
                 AssetCandidate("000012", "国债指数代理", DataSourceKind.INDEX),
             ],
         ),
+    ]
+
+
+def stock_bond_60_40_targets() -> list[AssetTarget]:
+    return [
+        AssetTarget(
+            asset_class="equity",
+            weight=0.60,
+            candidates=[
+                AssetCandidate("510300", "沪深300ETF", DataSourceKind.ETF),
+                AssetCandidate("000300", "沪深300指数", DataSourceKind.INDEX),
+            ],
+        ),
+        AssetTarget(
+            asset_class="bond",
+            weight=0.40,
+            candidates=[
+                AssetCandidate("511010", "国债ETF", DataSourceKind.ETF),
+                AssetCandidate("000012", "国债指数", DataSourceKind.INDEX),
+            ],
+        ),
+    ]
+
+
+def equity_only_targets() -> list[AssetTarget]:
+    return [
+        AssetTarget(
+            asset_class="equity",
+            weight=1.0,
+            candidates=[
+                AssetCandidate("510300", "沪深300ETF", DataSourceKind.ETF),
+                AssetCandidate("000300", "沪深300指数", DataSourceKind.INDEX),
+            ],
+        )
+    ]
+
+
+def bond_only_targets() -> list[AssetTarget]:
+    return [
+        AssetTarget(
+            asset_class="bond",
+            weight=1.0,
+            candidates=[
+                AssetCandidate("511010", "国债ETF", DataSourceKind.ETF),
+                AssetCandidate("000012", "国债指数", DataSourceKind.INDEX),
+            ],
+        )
     ]
 
 

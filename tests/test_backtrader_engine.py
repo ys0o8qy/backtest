@@ -39,3 +39,9 @@ def test_backtrader_portfolio_rebalances_multiple_assets_by_target_weight():
     assert result.rebalance_count >= 2
     assert result.weights == {"stock": 0.6, "bond": 0.4}
     assert result.warnings == []
+    assert result.run_id.startswith("backtrader-")
+    assert result.portfolio_id == "portfolio"
+    assert result.config_snapshot["rebalance"] == "monthly"
+    assert len(result.rebalance_records) == result.rebalance_count
+    assert set(result.final_positions) == {"stock", "bond"}
+    assert isinstance(result.orders_or_trades, list)

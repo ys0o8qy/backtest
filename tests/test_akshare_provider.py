@@ -4,7 +4,15 @@ from datetime import date
 
 import pandas as pd
 
-from akquant.akshare_provider import AkshareProvider, DataSourceKind, fetch_all_index_returns, fetch_index_returns
+from akquant.akshare_provider import (
+    AkshareProvider,
+    DataSourceKind,
+    fetch_all_index_returns,
+    fetch_index_returns,
+    get_all_index_return_matrix,
+    get_price_feed,
+    get_return_matrix,
+)
 from akquant.portfolios import AssetCandidate, AssetTarget, select_asset_data
 
 
@@ -96,3 +104,16 @@ def test_fetch_all_index_returns_uses_akshare_index_catalog():
 
     assert list(returns.columns) == ["000300", "000012"]
     assert returns.index.name == "date"
+
+
+def test_stable_data_facade_returns_price_feeds_and_return_matrices():
+    provider = AkshareProvider(ak_module=FakeAkshare())
+    candidate = AssetCandidate(symbol="000300", name="沪深300指数", kind=DataSourceKind.INDEX)
+
+    feed = get_price_feed(provider=provider, candidate=candidate, start=date(2006, 1, 1), end=date(2026, 1, 5))
+    returns = get_return_matrix(provider=provider, symbols=["000300"], start=date(2006, 1, 1), end=date(2026, 1, 5))
+    all_returns = get_all_index_return_matrix(provider=provider, start=date(2006, 1, 1), end=date(2026, 1, 5), limit=1)
+
+    assert {"open", "high", "low", "close", "volume", "openinterest"}.issubset(feed.columns)
+    assert list(returns.columns) == ["000300"]
+    assert list(all_returns.columns) == ["000300"]

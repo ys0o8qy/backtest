@@ -10,10 +10,14 @@ from akquant.akshare_provider import AkshareProvider
 from akquant.all_weather import run_all_weather_backtest
 from akquant.all_weather_reporting import write_all_weather_markdown_report
 from akquant.backtrader_engine import BacktraderPortfolioConfig, run_backtrader_portfolio
+from akquant.comparison import run_comparison
+from akquant.comparison_reporting import write_comparison_markdown_report
+from akquant.config_loader import load_portfolio_config
 from akquant.data import load_bars_csv
 from akquant.engine import run_backtest
 from akquant.models import BacktestConfig, RuleConfig
 from akquant.portfolio_reporting import write_portfolio_markdown_report
+from akquant.portfolio_registry import get_builtin_portfolio, list_builtin_portfolios
 from akquant.reporting import write_markdown_report
 
 
@@ -24,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
         return _portfolio_main(argv[1:])
     if argv and argv[0] == "all-weather":
         return _all_weather_main(argv[1:])
+    if argv and argv[0] == "compare":
+        return _compare_main(argv[1:])
     return _single_strategy_main(argv)
 
 
@@ -110,6 +116,28 @@ def _all_weather_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _compare_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Compare multiple AKQuant portfolio configurations.")
+    parser.add_argument("--portfolio", action="append", required=True, help="Builtin portfolio id or YAML/JSON config path.")
+    parser.add_argument("--start", required=True, help="Start date, YYYY-MM-DD.")
+    parser.add_argument("--end", required=True, help="End date, YYYY-MM-DD.")
+    parser.add_argument("--rebalance", choices=["monthly", "quarterly", "yearly", "once"], default=None)
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args(argv)
+
+    configs = [_load_portfolio_reference(reference) for reference in args.portfolio]
+    if args.rebalance:
+        configs = [_replace_rebalance(config, args.rebalance) for config in configs]
+    report = run_comparison(
+        provider=AkshareProvider(),
+        configs=configs,
+        start=_parse_date(args.start),
+        end=_parse_date(args.end),
+    )
+    write_comparison_markdown_report(report, args.out)
+    return 0
+
+
 def _parse_key_value(value: str) -> tuple[str, str]:
     if "=" not in value:
         raise ValueError(f"expected key=value format, got {value!r}")
@@ -143,6 +171,18 @@ def _load_portfolio_csv(path: str) -> pd.DataFrame:
 
 def _parse_date(value: str):
     return pd.Timestamp(value).date()
+
+
+def _load_portfolio_reference(reference: str):
+    if reference in list_builtin_portfolios():
+        return get_builtin_portfolio(reference)
+    return load_portfolio_config(reference)
+
+
+def _replace_rebalance(config, rebalance: str):
+    from dataclasses import replace
+
+    return replace(config, rebalance=rebalance)
 
 
 if __name__ == "__main__":

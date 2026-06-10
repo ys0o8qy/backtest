@@ -147,6 +147,23 @@ def fetch_all_index_returns(
     return fetch_index_returns(provider=provider, symbols=symbols, start=start, end=end)
 
 
+def get_price_feed(provider: AkshareProvider, candidate, start: date, end: date) -> pd.DataFrame:
+    return provider.fetch(symbol=candidate.symbol, kind=candidate.kind, start=start, end=end)
+
+
+def get_return_matrix(provider: AkshareProvider, symbols: list[str], start: date, end: date) -> pd.DataFrame:
+    return fetch_index_returns(provider=provider, symbols=symbols, start=start, end=end)
+
+
+def get_all_index_return_matrix(
+    provider: AkshareProvider,
+    start: date,
+    end: date,
+    limit: int | None = None,
+) -> pd.DataFrame:
+    return fetch_all_index_returns(provider=provider, start=start, end=end, limit=limit)
+
+
 def _compact_date(value: date) -> str:
     return value.strftime("%Y%m%d")
 

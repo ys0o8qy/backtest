@@ -4,6 +4,7 @@ AKQuant is a local A-share quantitative research and backtesting MVP. It now has
 
 - V0.1 deterministic local engine for single-symbol strategy tests.
 - V0.2 AKShare + Backtrader path for multi-asset portfolio allocation backtests.
+- V0.3 portfolio comparison path for running multiple allocation configs under one data/cost policy.
 
 The V0.1 core loop from `docs/akquant-prd-architecture.md` remains available:
 
@@ -38,6 +39,13 @@ AKShare ETF/index data -> ETF-first fallback selection -> Backtrader target-weig
   - wide index return tables for analysis.
 - Backtrader multi-asset target-weight backtests.
 - All-weather portfolio template with ETF-first and index-fallback selection.
+- Builtin portfolio registry:
+  - `all_weather`
+  - `stock_bond_60_40`
+  - `equity_only`
+  - `bond_only`
+- YAML/JSON custom portfolio configs.
+- Multi-portfolio comparison report with metrics, equity curves, drawdowns, selected assets, and fallback summary.
 
 ## What Is Not Implemented Yet
 
@@ -105,6 +113,65 @@ Default all-weather targets:
 | cash | 15.00% | `511880` 货币ETF | `000012` 国债指数代理 |
 
 The index proxy path is useful for long-horizon analysis, but it is not the same as a fully tradable ETF backtest.
+
+## Compare Multiple Portfolios
+
+```bash
+uv run python -m akquant.cli compare \
+  --portfolio all_weather \
+  --portfolio stock_bond_60_40 \
+  --portfolio custom.yaml \
+  --start 2006-01-01 \
+  --end 2026-06-09 \
+  --rebalance quarterly \
+  --out /tmp/akquant-comparison-report.md
+```
+
+`--portfolio` accepts either a builtin portfolio id or a YAML/JSON config path. The comparison path uses the same date range, same data fallback policy, and same Backtrader execution model for each portfolio.
+
+Example custom config:
+
+```yaml
+id: custom_60_40
+name: Custom 60/40
+rebalance: quarterly
+initial_cash: 100000
+cost_model:
+  commission_rate: 0.0003
+  slippage_perc: 0.0005
+data_policy:
+  min_coverage_ratio: 0.95
+targets:
+  - asset_class: equity
+    weight: 0.6
+    candidates:
+      - { symbol: "510300", name: "沪深300ETF", kind: "etf" }
+      - { symbol: "000300", name: "沪深300指数", kind: "index" }
+  - asset_class: bond
+    weight: 0.4
+    candidates:
+      - { symbol: "511010", name: "国债ETF", kind: "etf" }
+      - { symbol: "000012", name: "国债指数", kind: "index" }
+```
+
+## Architecture Notes
+
+The stable portfolio-comparison architecture uses these boundaries:
+
+```text
+AKShare provider
+  -> PortfolioConfig / registry / config loader
+  -> portfolio runner
+  -> Backtrader execution
+  -> metrics and comparison report
+```
+
+The core domain objects are:
+
+- `PortfolioConfig`: allocation, rebalance cadence, cost model, and data policy.
+- `SelectedAssetData`: actual ETF or index selected for each asset class.
+- `BacktraderPortfolioResult`: one auditable backtest run.
+- `ComparisonReport`: comparable metrics and tables across multiple runs.
 
 ## Index Return Data
 

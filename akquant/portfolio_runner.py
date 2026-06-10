@@ -1,33 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import date
 
 from akquant.akshare_provider import AkshareProvider
 from akquant.backtrader_engine import BacktraderPortfolioConfig, BacktraderPortfolioResult, run_backtrader_portfolio
-from akquant.portfolios import SelectedAssetData, all_weather_targets, select_portfolio_data
+from akquant.portfolios import PortfolioConfig, SelectedAssetData, select_portfolio_data
 
 
-@dataclass(frozen=True)
-class AllWeatherBacktest:
-    selected_assets: list[SelectedAssetData]
-    result: BacktraderPortfolioResult
-
-
-def run_all_weather_backtest(
+def run_portfolio_config(
     provider: AkshareProvider,
+    config: PortfolioConfig,
     start: date,
     end: date,
-    initial_cash: float = 100_000.0,
-    rebalance: str = "quarterly",
-    min_coverage_ratio: float = 0.95,
-) -> AllWeatherBacktest:
+) -> tuple[BacktraderPortfolioResult, list[SelectedAssetData]]:
     selected = select_portfolio_data(
         provider=provider,
-        targets=all_weather_targets(),
+        targets=config.targets,
         start=start,
         end=end,
-        min_coverage_ratio=min_coverage_ratio,
+        min_coverage_ratio=config.data_policy.min_coverage_ratio,
     )
     data = {item.target.asset_class: item.data for item in selected}
     weights = {item.target.asset_class: item.target.weight for item in selected}
@@ -35,10 +27,13 @@ def run_all_weather_backtest(
     result = run_backtrader_portfolio(
         data=data,
         config=BacktraderPortfolioConfig(
-            initial_cash=initial_cash,
+            initial_cash=config.initial_cash,
             weights=weights,
-            rebalance=rebalance,
+            rebalance=config.rebalance,
+            commission_rate=config.cost_model.commission_rate,
+            slippage_perc=config.cost_model.slippage_perc,
+            portfolio_id=config.id,
+            config_snapshot=config.snapshot(),
         ),
     )
-    result = replace(result, warnings=fallback_warnings + result.warnings)
-    return AllWeatherBacktest(selected_assets=selected, result=result)
+    return replace(result, warnings=fallback_warnings + result.warnings), selected

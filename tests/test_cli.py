@@ -144,3 +144,55 @@ def test_all_weather_cli_uses_akshare_provider_and_reports_selected_assets(tmp_p
     assert "# AKQuant 全天候组合回测报告" in report
     assert "ETF 优先" in report
     assert "INDEX" in report
+
+
+def test_compare_cli_runs_builtin_and_custom_portfolios(tmp_path, monkeypatch):
+    output = tmp_path / "comparison.md"
+    custom = tmp_path / "custom.yaml"
+    custom.write_text(
+        """
+id: custom_60_40
+name: Custom 60/40
+rebalance: yearly
+targets:
+  - asset_class: equity
+    weight: 0.6
+    candidates:
+      - { symbol: "510300", name: "沪深300ETF", kind: "etf" }
+      - { symbol: "000300", name: "沪深300指数", kind: "index" }
+  - asset_class: bond
+    weight: 0.4
+    candidates:
+      - { symbol: "511010", name: "国债ETF", kind: "etf" }
+      - { symbol: "000012", name: "国债指数", kind: "index" }
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli_module, "AkshareProvider", lambda: AkshareProvider(ak_module=FakeAkshareForCliAllWeather()))
+
+    exit_code = main(
+        [
+            "compare",
+            "--portfolio",
+            "all_weather",
+            "--portfolio",
+            str(custom),
+            "--start",
+            "2006-01-01",
+            "--end",
+            "2026-01-05",
+            "--rebalance",
+            "yearly",
+            "--out",
+            str(output),
+        ]
+    )
+
+    assert exit_code == 0
+    report = output.read_text(encoding="utf-8")
+    assert "# AKQuant 多组合对比报告" in report
+    assert "收益率排名" in report
+    assert "最大回撤对比" in report
+    assert "年度收益对比" in report
+    assert "custom_60_40" in report
+    assert "fallback" in report.lower()
